@@ -30,6 +30,18 @@ const SLEPT_LIMIT = 18;
 const PICK_LIMIT_MS = 90_000;
 // A page's own scripts live in world 0; the picker answers from its own.
 const PICK_WORLD = 999;
+// The page wrote the answer; these repeat the page script's own limits because
+// the shell cannot trust it to have run them.
+const TEXT_CLIP = 4000;
+const NEARBY_CLIP = 300;
+const MARKUP_CLIP = 6000;
+const VALUE_CLIP = 500;
+const STYLE_CLIP = 200;
+const ELEMENT_STRINGS = ["pageUrl", "pageTitle", "tagName", "role", "accessibleName", "selector", "xpath", "text", "nearbyText", "htmlExcerpt"];
+const STYLE_KEYS = ["backgroundColor", "color", "display", "fontFamily", "fontSize", "fontWeight"];
+const SELECTOR_BASIS = ["testid", "aria-label", "id", "class"];
+const CANCEL_REASONS = ["escape", "dismissed", "timeout", "hidden", "navigation", "gone"];
+const clip = (value, limit) => (value.length > limit ? value.slice(0, limit) : value);
 
 // A command that switches a CDP domain on. The kernel sends these once at
 // attach, and a sleep throws away the session they were said on, so they are
@@ -639,6 +651,45 @@ class BrowserViews {
   // left it longer than a pick may wait. The highlight and the hover card are
   // drawn inside the page: a native view sits above anything this window's own
   // page could draw over it.
+  // The page wrote the answer, so the shell decides what an answer is: fields
+  // from an allow-list, strings clipped to the page script's own limits, and a
+  // shape it cannot read treated as gone.
+  clean(answer) {
+    const gone = { cancelled: true, reason: "gone" };
+    if (!answer || typeof answer !== "object") return gone;
+    if (answer.cancelled) {
+      const reason = CANCEL_REASONS.includes(answer.reason) ? answer.reason : "gone";
+      return { cancelled: true, reason };
+    }
+    const el = answer.element;
+    if (!el || typeof el !== "object") return gone;
+    const out = {};
+    for (const field of ELEMENT_STRINGS) {
+      const value = el[field];
+      if (typeof value !== "string") continue;
+      out[field] = clip(value, field === "htmlExcerpt" ? MARKUP_CLIP : field === "nearbyText" ? NEARBY_CLIP : TEXT_CLIP);
+    }
+    if (SELECTOR_BASIS.includes(el.selectorBasis)) out.selectorBasis = el.selectorBasis;
+    if (el.attributes && typeof el.attributes === "object") {
+      const attributes = {};
+      for (const [key, value] of Object.entries(el.attributes)) {
+        if (typeof value === "string") attributes[key] = clip(value, VALUE_CLIP);
+      }
+      out.attributes = attributes;
+    }
+    if (Number.isFinite(el.capturedAt)) out.capturedAt = el.capturedAt;
+    if (el.rect && typeof el.rect === "object") {
+      const { x, y, width, height } = el.rect;
+      if ([x, y, width, height].every(Number.isFinite)) out.rect = { x, y, width, height };
+    }
+    if (el.style && typeof el.style === "object") {
+      out.style = {};
+      for (const key of STYLE_KEYS) if (typeof el.style[key] === "string") out.style[key] = clip(el.style[key], STYLE_CLIP);
+    }
+    if (!out.selector || !out.tagName) return gone;
+    return { cancelled: false, element: out };
+  }
+
   async pick(targetId, labels) {
     const entry = this.entries.get(targetId);
     if (!entry) return { cancelled: true, reason: "gone" };
@@ -664,18 +715,15 @@ class BrowserViews {
     }, PICK_LIMIT_MS);
     if (typeof timer.unref === "function") timer.unref();
     try {
-      const answer = await contents.executeJavaScript(ARM(labels), false);
-      if (!answer || typeof answer !== "object") return { cancelled: true, reason: picking.reason || "gone" };
-      if (answer.cancelled && picking.reason) return { cancelled: true, reason: picking.reason };
+      const answer = this.clean(await contents.executeJavaScript(ARM(labels), false));
+      if (answer.cancelled) return picking.reason ? { cancelled: true, reason: picking.reason } : answer;
+      // The page cannot invent an element: the shell re-finds the selector in
+      // its own world before the answer is trusted.
+      if (!(await this.lands(contents, answer.element))) return { cancelled: true, reason: "gone" };
       // The picture is what the person saw: a complaint about how something
       // looks is answered by the element, not only by its markup.
-      if (answer.element) {
-        // The page cannot invent an element: the shell re-finds the selector in
-        // its own world before the answer is trusted.
-        if (!(await this.lands(contents, answer.element))) return { cancelled: true, reason: "gone" };
-        const shot = await this.shot(entry, answer.element.rect).catch(() => "");
-        if (shot) answer.shot = shot;
-      }
+      const shot = await this.shot(entry, answer.element.rect).catch(() => "");
+      if (shot) answer.shot = shot;
       return answer;
     } catch {
       // The page navigated, reloaded, slept, or was closed under the pick.
