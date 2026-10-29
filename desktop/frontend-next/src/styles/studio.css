@@ -1936,7 +1936,6 @@ button, input, select, textarea { font-size: calc(13.3333px * var(--fs-scale, 1)
 @keyframes studio-session-run { 55%, 100% { transform: translateX(110%); } }
 @keyframes studio-session-wait { 50% { background: color-mix(in srgb, var(--warn) 8%, transparent); } }
 @keyframes studio-session-done { from { background: color-mix(in srgb, var(--ok) 18%, transparent); } }
-.rail .sessrow > .wsdel { display: none; }
 .rail .session-more {
   position: absolute; top: 7px; right: 4px;
   width: 27px;
