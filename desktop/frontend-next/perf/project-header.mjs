@@ -15,7 +15,8 @@ try {
     page.setDefaultTimeout(8000);
     page.on("pageerror", (error) => failures.push(error.message));
     await page.goto(`${BASE}?pref=zh&turns=3`, { waitUntil: "networkidle" });
-    const add = page.locator(".projects-heading .projects-add");
+    const add = page.locator('.projects-heading [data-action="workspace.add"]');
+    const recent = page.locator('.projects-heading [data-action="session.recent"]');
     const more = page.locator(".projects-heading .wsmore");
     await add.waitFor();
     await page.addStyleTag({ content: "*{transition:none!important;animation:none!important}" });
@@ -29,11 +30,14 @@ try {
     const addHover = await paint(add);
     await more.hover();
     const moreHover = await paint(more);
-    check(`${scheme}: both header actions visibly highlight on hover`,
-      addHover.fill !== rest.fill && moreHover.fill !== rest.fill);
+    await recent.hover();
+    const recentHover = await paint(recent);
+    check(`${scheme}: all header actions visibly highlight on hover`,
+      addHover.fill !== rest.fill && moreHover.fill !== rest.fill && recentHover.fill !== rest.fill);
     check(`${scheme}: project header actions have the same hover fill and ink`,
-      addHover.fill === moreHover.fill && addHover.ink === moreHover.ink,
-      JSON.stringify({ add: addHover, more: moreHover }));
+      addHover.fill === moreHover.fill && addHover.ink === moreHover.ink
+        && recentHover.fill === addHover.fill && recentHover.ink === addHover.ink,
+      JSON.stringify({ add: addHover, more: moreHover, recent: recentHover }));
     await more.click();
     const menu = page.getByRole("menu", { name: "项目列表的更多操作", exact: true });
     await menu.waitFor();
@@ -50,15 +54,22 @@ try {
       focused: button === document.activeElement,
       outline: getComputedStyle(button).outline,
     }));
+    await page.keyboard.press("Shift+Tab");
+    const recentFocus = await recent.evaluate((button) => ({
+      focused: button === document.activeElement,
+      outline: getComputedStyle(button).outline,
+    }));
+    await page.keyboard.press("Tab");
     await page.keyboard.press("Tab");
     const moreFocus = await more.evaluate((button) => ({
       focused: button === document.activeElement,
       outline: getComputedStyle(button).outline,
     }));
-    check(`${scheme}: both header actions retain visible keyboard focus`,
-      addFocus.focused && moreFocus.focused
-        && !addFocus.outline.includes("none") && !moreFocus.outline.includes("none"),
-      JSON.stringify({ add: addFocus, more: moreFocus }));
+    check(`${scheme}: all header actions retain visible keyboard focus`,
+      addFocus.focused && moreFocus.focused && recentFocus.focused
+        && !addFocus.outline.includes("none") && !moreFocus.outline.includes("none")
+        && !recentFocus.outline.includes("none"),
+      JSON.stringify({ add: addFocus, more: moreFocus, recent: recentFocus }));
     await more.click();
     await menu.waitFor();
     await page.locator(".projects-heading-title").click();
@@ -73,6 +84,14 @@ try {
     await page.mouse.move(900, 500);
     const after = await paint(more);
     check(`${scheme}: dismissing the menu restores the resting background`, after.fill === rest.fill);
+    await recent.click();
+    const recentDialog = page.getByRole("dialog", { name: "最近的会话", exact: true });
+    await recentDialog.locator(".recent-session").first().waitFor();
+    check(`${scheme}: Recent opens saved session discovery`, await recentDialog.isVisible());
+    await page.keyboard.press("Escape");
+    await recentDialog.waitFor({ state: "hidden" });
+    check(`${scheme}: closing Recent returns focus to its own header entry`,
+      await recent.evaluate((button) => button === document.activeElement));
     await page.goto(`${BASE}?pref=zh&ws=20&sess=8&turns=3`, { waitUntil: "networkidle" });
     await add.waitFor();
     const headerTop = await add.evaluate((button) => button.getBoundingClientRect().top);
