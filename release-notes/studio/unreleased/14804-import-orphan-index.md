@@ -1,0 +1,2 @@
+- 修复：从旧版找回会话时，目标文件夹里残留没有对话文件的过期索引会让所有会话被反复跳过；现在会清掉它们并正常导入。修复 #14804。
+- Fixed: recovering older sessions no longer skips every conversation because of stale indexes with no transcript in the destination; they are cleared and the import proceeds. Fixes #14804.
