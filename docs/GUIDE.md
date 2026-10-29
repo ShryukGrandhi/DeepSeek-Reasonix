@@ -1046,6 +1046,32 @@ including Collapse all / Expand all, when you reopen it in the same browser or
 desktop profile. New projects start expanded. These display choices stay on
 this device; they do not change sessions or synchronize to another client.
 
+**Recent** in the project heading finds saved conversations across projects,
+including completed work that has left **Running**. It uses each conversation's
+last saved activity, not its unread status, pin order or last opening time.
+
+The picker reads 50 conversations per page from the complete matching history.
+**Previous page**, **Next page** and its session/project search reach older
+conversations without the sidebar's 300-row display ceiling.
+
+Selecting a conversation opens it, or focuses its existing pane, switches the
+sidebar to **All**, clears its search and expands the owning project. Worktree
+conversations retain their own working directory. On phones, opening a session
+closes the rail as usual; reopening it shows the selected project and session.
+
+Archived conversations stay in **Archived**. Recent respects the saved
+hide-legacy preference; an explicit search can still find legacy history.
+Deleted files or unavailable folders report the normal opening error.
+
+The environment selector starts with this machine. Selecting a remote host
+reads its recent history through the existing connection flow; hidden or disabled
+hosts are not offered. Older kernels ask for an update rather than showing a
+partial sidebar window as complete recent history.
+
+Activity comes from persisted session metadata and survives restart. The picker
+reopens on the first page with no search; it does not create a separate visit
+history or change the saved project order.
+
 Ordinary Reasonix-managed worktree chats appear under their original project,
 without a separate project row for each checkout.
 

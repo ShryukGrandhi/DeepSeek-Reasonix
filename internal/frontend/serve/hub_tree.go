@@ -90,7 +90,11 @@ func (h *Hub) tree(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, node)
 	}
-	h.reportOrphanPanes(out)
+	if window.recent {
+		pageRecentTree(out, window.offset, window.limit)
+	} else {
+		h.reportOrphanPanes(out)
+	}
 	writeJSON(w, out)
 }
 

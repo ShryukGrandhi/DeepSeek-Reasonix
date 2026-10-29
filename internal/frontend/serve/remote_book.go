@@ -305,7 +305,11 @@ func (h *Hub) remoteTree(w http.ResponseWriter, r *http.Request) {
 	}
 	defer release()
 	var tree json.RawMessage
-	if err := farRequest(r.Context(), ep, http.MethodGet, "/tree", nil, &tree); err != nil {
+	path := "/tree"
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
+	if err := farRequest(r.Context(), ep, http.MethodGet, path, nil, &tree); err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
