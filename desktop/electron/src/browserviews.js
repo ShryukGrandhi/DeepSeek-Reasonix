@@ -3,6 +3,7 @@ const crypto = require("node:crypto");
 const { WebContentsView, session } = require("electron");
 const { installPaneReload } = require("./reload");
 const { guestNavigationAllowed, typed } = require("./browserguard");
+const { ARM, STOP } = require("./elementpick");
 const { InputWake } = require("./inputwake");
 const { KeyboardKeeper } = require("./keyboard");
 
@@ -22,6 +23,13 @@ const PAGE_RADIUS = 8;
 
 // How many pages may stay asleep at once; past this the oldest is buried.
 const SLEPT_LIMIT = 18;
+
+// How long a pick waits for the person. Past it the page is left as it was
+// found: a picker left armed swallows every click on the page, so the wait is
+// a minute and a half, not an afternoon.
+const PICK_LIMIT_MS = 90_000;
+// A page's own scripts live in world 0; the picker answers from its own.
+const PICK_WORLD = 999;
 
 // A command that switches a CDP domain on. The kernel sends these once at
 // attach, and a sleep throws away the session they were said on, so they are
@@ -222,6 +230,17 @@ class BrowserViews {
       entry.onEvent(method, params);
     });
     this.keyboard.watch(contents, () => Date.now() < entry.synthUntil);
+    // The picker's key belongs to the page while the page holds the keyboard:
+    // a press that went there never reaches the window's own page, so it is
+    // taken here and the picker is started where the person is looking.
+    contents.on("before-input-event", (event, input) => {
+      if (!input || input.type !== "keyDown" || !input.key || !input.shift) return;
+      if (String(input.key).toLowerCase() !== "c") return;
+      if (process.platform === "darwin" ? !input.meta : !input.control) return;
+      if (entry.targetId !== this.shown) return;
+      event.preventDefault();
+      this.send("browser:pick-shortcut", { targetId: entry.targetId });
+    });
     this.watchLoads(entry.targetId, entry);
     const gone = () => {
       // A sleep closes the contents itself, so a death under it is the sleep
@@ -374,7 +393,7 @@ class BrowserViews {
   // at it, a navigation or a settle is pending, a certificate or a dialog waits,
   // it is sounding, or DevTools is open. Downloads need no guard here.
   maySleep(entry) {
-    if (entry.targetId === this.shown || entry.returning || entry.certificate || entry.dialog) return false;
+    if (entry.targetId === this.shown || entry.picking || entry.returning || entry.certificate || entry.dialog) return false;
     const contents = entry.view && entry.view.webContents;
     if (typeof contents?.isCurrentlyAudible === "function" && contents.isCurrentlyAudible()) return false;
     if (typeof contents?.isDevToolsOpened === "function" && contents.isDevToolsOpened()) return false;
@@ -569,6 +588,13 @@ class BrowserViews {
     for (const entry of this.entries.values()) {
       if (entry.view) this.putAway(entry.view, entry);
     }
+    // A pick behind a page nobody can see cannot be used: the person is looking
+    // at a picture, so the pick is settled instead of swallowing clicks unseen.
+    for (const entry of this.entries.values()) {
+      if (!entry.picking) continue;
+      entry.picking.reason = "hidden";
+      void this.cancelPick(entry.targetId);
+    }
   }
 
   putAway(view, entry) {
@@ -606,6 +632,132 @@ class BrowserViews {
         contents.stop();
         break;
     }
+  }
+
+  // pick arms one page's element picker and answers what the person pointed
+  // at, or { cancelled: true } when they pressed Escape, navigated away, or
+  // left it longer than a pick may wait. The highlight and the hover card are
+  // drawn inside the page: a native view sits above anything this window's own
+  // page could draw over it.
+  async pick(targetId, labels) {
+    const entry = this.entries.get(targetId);
+    if (!entry) return { cancelled: true, reason: "gone" };
+    // A pick draws inside the page that is on screen; a page that is not shown
+    // would pick behind the one the person is looking at.
+    if (entry.targetId !== this.shown) return { cancelled: true, reason: "hidden" };
+    if (entry.slept) await this.wake(entry).catch(() => {});
+    const contents = entry.view && entry.view.webContents;
+    if (!contents || contents.isDestroyed()) return { cancelled: true, reason: "gone" };
+    // A second pick on the same page replaces the first: one picker, one
+    // overlay, and the older call answers as cancelled.
+    if (entry.picking) {
+      entry.picking.reason = "dismissed";
+      await this.cancelPick(targetId).catch(() => {});
+    }
+    // Why the pick ends when it ends without an element: Escape and a dismissal
+    // come from the page, the other three from here. The person is told which,
+    // so "nothing happened" is never the answer.
+    const picking = (entry.picking = { reason: "" });
+    const timer = setTimeout(() => {
+      picking.reason = "timeout";
+      void this.cancelPick(targetId);
+    }, PICK_LIMIT_MS);
+    if (typeof timer.unref === "function") timer.unref();
+    try {
+      const answer = await contents.executeJavaScript(ARM(labels), false);
+      if (!answer || typeof answer !== "object") return { cancelled: true, reason: picking.reason || "gone" };
+      if (answer.cancelled && picking.reason) return { cancelled: true, reason: picking.reason };
+      // The picture is what the person saw: a complaint about how something
+      // looks is answered by the element, not only by its markup.
+      if (answer.element) {
+        // The page cannot invent an element: the shell re-finds the selector in
+        // its own world before the answer is trusted.
+        if (!(await this.lands(contents, answer.element))) return { cancelled: true, reason: "gone" };
+        const shot = await this.shot(entry, answer.element.rect).catch(() => "");
+        if (shot) answer.shot = shot;
+      }
+      return answer;
+    } catch {
+      // The page navigated, reloaded, slept, or was closed under the pick.
+      return { cancelled: true, reason: picking.reason || "navigation" };
+    } finally {
+      if (entry.picking === picking) entry.picking = null;
+      clearTimeout(timer);
+    }
+  }
+
+  // lands asks the DOM from the shell's own world whether a selector still
+  // names an element of the tag the pick reported. A page script cannot answer
+  // this one in the page's place.
+  async lands(contents, element) {
+    if (!element || !element.selector || !element.tagName) return false;
+    const tag = await contents
+      .executeJavaScriptInIsolatedWorld(PICK_WORLD, [
+        {
+          code: `(() => {
+            const el = document.querySelector(${JSON.stringify(element.selector)});
+            return el ? el.tagName.toLowerCase() : "";
+          })()`,
+        },
+      ])
+      .catch(() => "");
+    return tag === String(element.tagName).toLowerCase();
+  }
+
+  // shot captures the element as the view drew it. The page's rect is in CSS
+  // pixels and the view may be fitted, so the scale is applied and the result
+  // is kept inside the view; an element scrolled out of sight has no picture.
+  async shot(entry, rect) {
+    const contents = entry.view && entry.view.webContents;
+    if (!contents || contents.isDestroyed() || !rect) return "";
+    const scale = entry.scale || 1;
+    const bounds = entry.view.getBounds();
+    const at = {
+      x: Math.max(0, Math.round(rect.x * scale)),
+      y: Math.max(0, Math.round(rect.y * scale)),
+      width: Math.round(rect.width * scale),
+      height: Math.round(rect.height * scale),
+    };
+    at.width = Math.min(at.width, bounds.width - at.x);
+    at.height = Math.min(at.height, bounds.height - at.y);
+    if (at.width < 1 || at.height < 1) return "";
+    const image = await contents.capturePage(at);
+    return image.isEmpty() ? "" : image.toDataURL();
+  }
+
+  // verify re-finds a selector after the page changed, so a person can see
+  // whether an edit landed where the pick pointed.
+  async verify(targetId, selector) {
+    const entry = this.entries.get(targetId);
+    if (!entry || !selector) return { found: false };
+    const contents = entry.view && entry.view.webContents;
+    if (!contents || contents.isDestroyed()) return { found: false };
+    const at = await contents
+      .executeJavaScript(
+        `(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return { found: false };
+          const r = el.getBoundingClientRect();
+          return { found: true, tag: el.tagName.toLowerCase(), rect: { x: r.x, y: r.y, width: r.width, height: r.height } };
+        })()`,
+        false,
+      )
+      .catch(() => ({ found: false }));
+    if (!at || !at.found || !at.rect) return { found: false };
+    const shot = await this.shot(entry, at.rect).catch(() => "");
+    return { found: true, tag: at.tag, rect: at.rect, shot };
+  }
+
+  // cancelPick disarms the picker, which settles a pick still waiting on the
+  // page. A page that has gone answers nothing, which reads as cancelled.
+  cancelPick(targetId) {
+    const entry = this.entries.get(targetId);
+    const contents = entry && entry.view && entry.view.webContents;
+    if (!contents || contents.isDestroyed()) return Promise.resolve(false);
+    return contents.executeJavaScript(STOP, false).then(
+      () => true,
+      () => false,
+    );
   }
 
   // navigate starts loading what the person typed and answers "", or the code

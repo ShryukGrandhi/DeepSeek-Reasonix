@@ -64,10 +64,17 @@ contextBridge.exposeInMainWorld("reasonixHost", {
   freezeBrowserView: () => ipcRenderer.invoke("browser:freeze"),
   controlBrowserView: (targetId, action) => ipcRenderer.invoke("browser:control", String(targetId), String(action)),
   navigateBrowserView: (targetId, address) => ipcRenderer.invoke("browser:navigate", String(targetId), String(address)),
+  // Arm this page's element picker, and let a person put it away again. The
+  // answer is the element they pointed at, or that they picked nothing.
+  pickBrowserElement: (targetId, labels) => ipcRenderer.invoke("browser:pick", String(targetId), labels),
+  cancelBrowserPick: (targetId) => ipcRenderer.invoke("browser:pick-cancel", String(targetId)),
+  verifyBrowserElement: (targetId, selector) => ipcRenderer.invoke("browser:verify", String(targetId), String(selector)),
   // Why a page did not load, and a login a page or proxy asks for. The password
   // goes back to this window's main process only; the kernel never sees it.
   onBrowserLoadState: (listener) => subscribe("browser:load-state", listener),
   onBrowserLogin: (listener) => subscribe("browser:login", listener),
+  // The picker's key, pressed in the page rather than in this one.
+  onBrowserPickShortcut: (listener) => subscribe("browser:pick-shortcut", listener),
   trustBrowserCertificate: (targetId) => ipcRenderer.invoke("browser:trust-certificate", String(targetId)),
   answerBrowserLogin: (id, username, password) =>
     ipcRenderer.invoke("browser:login-answer", String(id), String(username || ""), String(password || "")),

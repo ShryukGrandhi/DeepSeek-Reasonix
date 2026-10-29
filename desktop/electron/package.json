@@ -18,6 +18,7 @@
     "shortcut-live": "electron test/globalshortcut_live.js",
     "browser-resize-live": "electron test/browser_resize_live.js",
     "browser-fit-live": "electron test/browser_fit_live.js",
+    "pick-live": "electron test/elementpick_live.js",
     "browser-fit-pages": "electron test/browser_fit_pages.js",
     "sleep-live": "electron test/sleep_live.js",
     "image-live": "electron test/image_live.js",

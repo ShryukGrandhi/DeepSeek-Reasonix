@@ -3756,3 +3756,61 @@ test("only the app's own window is answered, and nothing is read from the asker"
   assert.deepEqual(processMemoryHandler(app, () => null)({}), []);
   assert.deepEqual(processMemoryHandler({ getAppMetrics: () => { throw new Error("x"); } }, () => true)({}), []);
 });
+
+test("a pick arms the page, answers what it reports, and a page that cannot answer is cancelled", async () => {
+  const Module = require("node:module");
+  const load = Module._load;
+  Module._load = function (request, ...rest) {
+    if (request === "electron") return { WebContentsView: class {}, session: { fromPartition: () => ({}) } };
+    return load.call(this, request, ...rest);
+  };
+  let BrowserViews;
+  try {
+    ({ BrowserViews } = require("../src/browserviews.js"));
+  } finally {
+    Module._load = load;
+  }
+  const win = {
+    on() {},
+    isDestroyed: () => false,
+    isFocused: () => false,
+    webContents: Object.assign(new EventEmitter(), { isFocused: () => false }),
+    getContentBounds: () => ({ width: 1200, height: 800 }),
+    contentView: { addChildView() {}, removeChildView() {} },
+  };
+  const views = new BrowserViews({ win, kernelOrigin: "http://127.0.0.1:1" });
+  const element = { tagName: "img", selector: "main > img", rect: { x: 1, y: 2, width: 3, height: 4 } };
+  const armed = [];
+  const recheck = [];
+  const contents = {
+    isDestroyed: () => false,
+    executeJavaScript: async (code) => {
+      armed.push(code);
+      return { cancelled: false, element };
+    },
+    executeJavaScriptInIsolatedWorld: async (_worldId, scripts) => {
+      recheck.push(scripts[0].code);
+      return "img";
+    },
+  };
+  views.entries.set("t1", { targetId: "t1", view: { webContents: contents } });
+  // Picking only reaches the page that is on screen.
+  views.shown = "t1";
+
+  assert.deepEqual(await views.pick("t1"), { cancelled: false, element });
+  assert.match(armed[0], /__reasonixElementPicker/, "the page is armed with the picker's own script");
+  assert.match(recheck[0], /main > img/, "the shell re-finds the selector in its own world");
+  assert.equal(await views.cancelPick("t1"), true);
+  assert.match(armed[1], /picker\.stop\(\)/, "cancelling disarms the page");
+  assert.deepEqual(await views.pick("gone"), { cancelled: true, reason: "gone" }, "a page that is not there picks nothing");
+  assert.equal(await views.cancelPick("gone"), false);
+
+  // A page that navigated out from under the pick, and one that answered
+  // something that is not an element, both say why rather than "nothing".
+  contents.executeJavaScript = async () => {
+    throw new Error("the page went away");
+  };
+  assert.deepEqual(await views.pick("t1"), { cancelled: true, reason: "navigation" });
+  contents.executeJavaScript = async () => "not an answer";
+  assert.deepEqual(await views.pick("t1"), { cancelled: true, reason: "gone" });
+});
