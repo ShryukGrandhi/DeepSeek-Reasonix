@@ -1,2 +1,0 @@
-- 新增：项目栏“最近”按活动时间跨项目查找会话，完整分页；点选后定位项目并打开或聚焦会话，也可选择远程环境。#14319。
-- Added: Recent sessions in the project header, with activity ordering, full-history paging and project location on open/focus, including remote environments. #14319.
