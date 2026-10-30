@@ -167,9 +167,12 @@ jobs:
 
       - name: Build the kernel and the page
         working-directory: android
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          ./scripts/build-kernel.sh
-          ./scripts/sync-page.sh
+          export REASONIX_APP_VERSION="${VERSION#v}"
+          bash ./scripts/build-kernel.sh
+          bash ./scripts/sync-page.sh
 
       # The one end-to-end check that needs no phone: the kernel the shell starts,
       # serving the page the APK carries. Running it here means an APK that would
@@ -178,7 +181,7 @@ jobs:
         working-directory: android
         run: |
           (cd .. && go build -o reasonix-verify ./cmd/reasonix)
-          KERNEL_BIN="$PWD/../reasonix-verify" ./scripts/verify-page.sh
+          KERNEL_BIN="$PWD/../reasonix-verify" bash ./scripts/verify-page.sh
 
       - name: Assemble
         working-directory: android
