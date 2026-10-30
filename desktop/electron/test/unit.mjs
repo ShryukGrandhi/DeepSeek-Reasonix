@@ -3887,6 +3887,12 @@ test("a pick arms the page, answers what it reports, and a page that cannot answ
   assert.equal("extra" in bounded.element, false, "an unknown field is dropped");
   assert.equal("rect" in bounded.element, false, "a rect that is not numbers is dropped");
   assert.deepEqual(bounded.element.attributes, { id: "a" }, "a non-string attribute is dropped");
+  contents.executeJavaScript = async () => ({
+    cancelled: false,
+    element: { tagName: "img", selector: "main > img", attributes: { ["k".repeat(600)]: "v" } },
+  });
+  const longKey = await views.pick("t1");
+  assert.equal(Object.keys(longKey.element.attributes)[0].length, 500, "an oversized attribute key is clipped like its value");
   contents.executeJavaScript = async () => ({ cancelled: false, element: { tagName: "img" } });
   assert.deepEqual(await views.pick("t1"), { cancelled: true, reason: "gone" }, "an element without a selector is gone");
 
