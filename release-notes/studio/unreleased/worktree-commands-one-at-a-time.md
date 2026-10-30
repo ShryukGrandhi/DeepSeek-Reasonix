@@ -1,2 +1,0 @@
-- 修复：同一项目里并行启动的隔离任务不再偶尔因 Git 报 failed to read …/commondir 而失败；同一仓库的 worktree 操作改为逐个执行。关联 728a0ed16。
-- Fixed: isolated tasks started in parallel in one project no longer fail now and then with Git's "failed to read …/commondir"; one repository's worktree commands run one at a time. Refs 728a0ed16.

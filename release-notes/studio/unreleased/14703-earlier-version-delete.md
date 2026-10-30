@@ -1,2 +1,0 @@
-- 修复：侧栏里「早先版本」和「恢复副本」这一行，鼠标悬停或键盘聚焦时重新显示删除按钮 ×，不用再靠 Delete 键删除。修复 #14703。
-- Fixed: an earlier version or recovery copy in the sidebar shows its delete × again on hover or keyboard focus, so it no longer takes the Delete key to remove one. Fixes #14703.
