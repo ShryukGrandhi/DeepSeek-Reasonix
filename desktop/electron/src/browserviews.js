@@ -675,7 +675,7 @@ class BrowserViews {
       const attributes = {};
       for (const [key, value] of Object.entries(el.attributes)) {
         if (Object.keys(attributes).length >= ATTR_LIMIT) break;
-        if (typeof value === "string") attributes[key] = clip(value, VALUE_CLIP);
+        if (typeof value === "string") attributes[clip(key, VALUE_CLIP)] = clip(value, VALUE_CLIP);
       }
       out.attributes = attributes;
     }
