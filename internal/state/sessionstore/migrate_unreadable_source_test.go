@@ -2,6 +2,7 @@ package sessionstore
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ const unreadableSourceSession = `{"role":"user","content":"arrives on the retry"
 // class the import should report plus a restore func that leaves dir empty and
 // readable. A chmod-000 directory is the real-world failure; where that does not
 // deny reads (Windows, or a root test user) a regular file at the same path
-// makes os.ReadDir fail portably with ENOTDIR.
+// makes os.ReadDir fail with ENOTDIR where the platform reports it.
 func unreadableSourceDir(t *testing.T, dir string) (SkipReason, func()) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -39,6 +40,11 @@ func unreadableSourceDir(t *testing.T, dir string) (SkipReason, func()) {
 	}
 	if err := os.WriteFile(dir, []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// Windows reports a non-directory as absent, which is the normal fresh
+	// install, so no unreadable directory can be built there.
+	if _, err := os.ReadDir(dir); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Skip("this platform cannot make a directory unreadable")
 	}
 	return SkipCorrupt, func() {
 		_ = os.Remove(dir)

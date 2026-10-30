@@ -2,6 +2,7 @@ package migration
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // be listed, and returns the skip class the import should report for it plus a
 // restore func that leaves dir as an empty, readable directory. It prefers the
 // real-world failure — a chmod-000 directory — and falls back to a regular file
-// at the same path, which makes os.ReadDir fail on every platform (ENOTDIR).
+// at the same path, which makes os.ReadDir fail with ENOTDIR on Unix.
 func unreadableSessionDir(t *testing.T, dir string) (sessionstore.SkipReason, func()) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -39,6 +40,11 @@ func unreadableSessionDir(t *testing.T, dir string) (sessionstore.SkipReason, fu
 	}
 	if err := os.WriteFile(dir, []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// Windows reports a non-directory as absent, which is the normal fresh
+	// install, so no unreadable directory can be built there.
+	if _, err := os.ReadDir(dir); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Skip("this platform cannot make a directory unreadable")
 	}
 	return sessionstore.SkipCorrupt, func() {
 		_ = os.Remove(dir)
