@@ -36,6 +36,7 @@ const TEXT_CLIP = 4000;
 const NEARBY_CLIP = 300;
 const MARKUP_CLIP = 6000;
 const VALUE_CLIP = 500;
+const ATTR_LIMIT = 64;
 const STYLE_CLIP = 200;
 const ELEMENT_STRINGS = ["pageUrl", "pageTitle", "tagName", "role", "accessibleName", "selector", "xpath", "text", "nearbyText", "htmlExcerpt"];
 const STYLE_KEYS = ["backgroundColor", "color", "display", "fontFamily", "fontSize", "fontWeight"];
@@ -246,7 +247,7 @@ class BrowserViews {
     // a press that went there never reaches the window's own page, so it is
     // taken here and the picker is started where the person is looking.
     contents.on("before-input-event", (event, input) => {
-      if (!input || input.type !== "keyDown" || !input.key || !input.shift) return;
+      if (!input || input.type !== "keyDown" || input.isAutoRepeat || !input.key || !input.shift) return;
       if (String(input.key).toLowerCase() !== "c") return;
       if (process.platform === "darwin" ? !input.meta : !input.control) return;
       if (entry.targetId !== this.shown) return;
@@ -673,6 +674,7 @@ class BrowserViews {
     if (el.attributes && typeof el.attributes === "object") {
       const attributes = {};
       for (const [key, value] of Object.entries(el.attributes)) {
+        if (Object.keys(attributes).length >= ATTR_LIMIT) break;
         if (typeof value === "string") attributes[key] = clip(value, VALUE_CLIP);
       }
       out.attributes = attributes;
@@ -781,15 +783,16 @@ class BrowserViews {
     const contents = entry.view && entry.view.webContents;
     if (!contents || contents.isDestroyed()) return { found: false };
     const at = await contents
-      .executeJavaScript(
-        `(() => {
-          const el = document.querySelector(${JSON.stringify(selector)});
-          if (!el) return { found: false };
-          const r = el.getBoundingClientRect();
-          return { found: true, tag: el.tagName.toLowerCase(), rect: { x: r.x, y: r.y, width: r.width, height: r.height } };
-        })()`,
-        false,
-      )
+      .executeJavaScriptInIsolatedWorld(PICK_WORLD, [
+        {
+          code: `(() => {
+            const el = document.querySelector(${JSON.stringify(selector)});
+            if (!el) return { found: false };
+            const r = el.getBoundingClientRect();
+            return { found: true, tag: el.tagName.toLowerCase(), rect: { x: r.x, y: r.y, width: r.width, height: r.height } };
+          })()`,
+        },
+      ])
       .catch(() => ({ found: false }));
     if (!at || !at.found || !at.rect) return { found: false };
     const shot = await this.shot(entry, at.rect).catch(() => "");
