@@ -1009,12 +1009,12 @@ jobs:
         timeout-minutes: 5
         run: go test -count=1 -timeout=3m -run '^TestBashPowerShellExecuteDetailedContract$|^TestBashPowerShell51PreflightRejectsAndAndDetailed$|^TestBashPowerShellOutputIsUTF8$|^TestBashPowerShellSurfacesNonZeroExit$|^TestBashPowerShellRejectsChaining$' ./internal/tools/builtin
 
-      # Full push suite uses the same 18m package timeout as Windows smoke and a
-      # 35m step budget above it. -count=1 as at the smoke step. A failure prints
-      # the failed tests' output and the 15 slowest boot tests.
+      # Full push suite: a 36m package timeout inside a 45m step budget. -count=1
+      # as at the smoke step. A failure prints the failed tests' output and the 15
+      # slowest boot tests.
       - name: test (full)
         if: env.RUN_STEPS == 'true' && runner.os == 'Windows' && github.event_name != 'pull_request'
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           # Run the prompt-cache prefix-stability guard (TestCacheHit*) in CI: a
           # regression there silently tanks the cache hit rate the project is
@@ -1025,9 +1025,9 @@ jobs:
           WINDOWS_SANDBOX_WAIT_MS: "20000"
         shell: bash
         run: |
-          # internal/assembly/boot alone takes 14-15 minutes on a Windows runner;
+          # internal/assembly/boot alone can take over 25 minutes on a Windows runner;
           # the package limit leaves headroom inside the step limit above.
-          go test -count=1 -p 4 -timeout=28m -json ./... | tee "$RUNNER_TEMP/full.jsonl" |
+          go test -count=1 -p 4 -timeout=36m -json ./... | tee "$RUNNER_TEMP/full.jsonl" |
             jq -rj --unbuffered 'select(.Action == "output" and .Test == null) | .Output'
 
       - name: test (full) failure detail
