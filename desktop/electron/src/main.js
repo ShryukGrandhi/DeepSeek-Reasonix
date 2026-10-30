@@ -451,6 +451,15 @@ ipcMain.handle("browser:control", (event, targetId, action) => {
 ipcMain.handle("browser:navigate", (event, targetId, address) =>
   fromWindow(event) ? (browserViews?.navigate(String(targetId), String(address)) ?? "scheme") : "scheme",
 );
+ipcMain.handle("browser:pick", (event, targetId, labels) =>
+  fromWindow(event) ? (browserViews?.pick(String(targetId), labels) ?? { cancelled: true }) : { cancelled: true },
+);
+ipcMain.handle("browser:pick-cancel", (event, targetId) =>
+  fromWindow(event) ? (browserViews?.cancelPick(String(targetId)) ?? false) : false,
+);
+ipcMain.handle("browser:verify", (event, targetId, selector) =>
+  fromWindow(event) ? (browserViews?.verify(String(targetId), String(selector)) ?? { found: false }) : { found: false },
+);
 ipcMain.handle("browser:trust-certificate", (event, targetId) =>
   fromWindow(event) ? (browserViews?.trustCertificate(String(targetId)) ?? false) : false,
 );

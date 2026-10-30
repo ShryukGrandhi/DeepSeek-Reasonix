@@ -3805,3 +3805,113 @@ test("only the app's own window is answered, and nothing is read from the asker"
   assert.deepEqual(processMemoryHandler(app, () => null)({}), []);
   assert.deepEqual(processMemoryHandler({ getAppMetrics: () => { throw new Error("x"); } }, () => true)({}), []);
 });
+
+test("a pick arms the page, answers what it reports, and a page that cannot answer is cancelled", async () => {
+  const Module = require("node:module");
+  const load = Module._load;
+  Module._load = function (request, ...rest) {
+    if (request === "electron") return { WebContentsView: class {}, session: { fromPartition: () => ({}) } };
+    return load.call(this, request, ...rest);
+  };
+  let BrowserViews;
+  try {
+    ({ BrowserViews } = require("../src/browserviews.js"));
+  } finally {
+    Module._load = load;
+  }
+  const win = {
+    on() {},
+    isDestroyed: () => false,
+    isFocused: () => false,
+    webContents: Object.assign(new EventEmitter(), { isFocused: () => false }),
+    getContentBounds: () => ({ width: 1200, height: 800 }),
+    contentView: { addChildView() {}, removeChildView() {} },
+  };
+  const views = new BrowserViews({ win, kernelOrigin: "http://127.0.0.1:1" });
+  const element = { tagName: "img", selector: "main > img", rect: { x: 1, y: 2, width: 3, height: 4 } };
+  const armed = [];
+  const recheck = [];
+  const contents = {
+    isDestroyed: () => false,
+    executeJavaScript: async (code) => {
+      armed.push(code);
+      return { cancelled: false, element };
+    },
+    executeJavaScriptInIsolatedWorld: async (_worldId, scripts) => {
+      recheck.push(scripts[0].code);
+      return "img";
+    },
+  };
+  const shots = [];
+  contents.capturePage = async (at) => {
+    shots.push(at);
+    return { isEmpty: () => true, toDataURL: () => "data:image/png;base64,x" };
+  };
+  views.entries.set("t1", { targetId: "t1", view: { webContents: contents, getBounds: () => ({ width: 200, height: 200 }) } });
+  // Picking only reaches the page that is on screen.
+  views.shown = "t1";
+
+  assert.deepEqual(await views.pick("t1"), { cancelled: false, element });
+  assert.match(armed[0], /__reasonixElementPicker/, "the page is armed with the picker's own script");
+  assert.match(recheck[0], /main > img/, "the shell re-finds the selector in its own world");
+  assert.equal(await views.cancelPick("t1"), true);
+  assert.match(armed[1], /picker\.stop\(\)/, "cancelling disarms the page");
+  assert.deepEqual(await views.pick("gone"), { cancelled: true, reason: "gone" }, "a page that is not there picks nothing");
+  assert.equal(await views.cancelPick("gone"), false);
+
+  // A page that navigated out from under the pick, and one that answered
+  // something that is not an element, both say why rather than "nothing".
+  contents.executeJavaScript = async () => {
+    throw new Error("the page went away");
+  };
+  assert.deepEqual(await views.pick("t1"), { cancelled: true, reason: "navigation" });
+  contents.executeJavaScript = async () => "not an answer";
+  assert.deepEqual(await views.pick("t1"), { cancelled: true, reason: "gone" });
+
+  // The page wrote the answer: the shell keeps known fields, clips them, and
+  // treats a shape it cannot read as gone.
+  contents.executeJavaScript = async () => ({
+    cancelled: false,
+    element: {
+      tagName: "img",
+      selector: "main > img",
+      text: "x".repeat(10_000),
+      extra: "drop me",
+      rect: { x: "nope", y: 2, width: 3, height: 4 },
+      attributes: { id: "a", bad: 5 },
+    },
+  });
+  contents.executeJavaScriptInIsolatedWorld = async () => "img";
+  const bounded = await views.pick("t1");
+  assert.equal(bounded.element.text.length, 4000, "an oversized string is clipped");
+  assert.equal("extra" in bounded.element, false, "an unknown field is dropped");
+  assert.equal("rect" in bounded.element, false, "a rect that is not numbers is dropped");
+  assert.deepEqual(bounded.element.attributes, { id: "a" }, "a non-string attribute is dropped");
+  contents.executeJavaScript = async () => ({ cancelled: false, element: { tagName: "img" } });
+  assert.deepEqual(await views.pick("t1"), { cancelled: true, reason: "gone" }, "an element without a selector is gone");
+
+  // A label with a quote and a newline still produces a script that parses.
+  contents.executeJavaScript = async (code) => {
+    armed.push(code);
+    return { cancelled: true, reason: "escape" };
+  };
+  await views.pick("t1", { color: 'a"b\nc' });
+  assert.doesNotThrow(() => new Function(armed[armed.length - 1]), "the label is embedded as JSON");
+
+  // A rect the page wrote is clamped to the view or dropped entirely.
+  for (const [bad, why] of [
+    [{ x: -1, y: 0, width: 10, height: 10 }, "a negative origin is kept and clamped"],
+    [{ x: NaN, y: 0, width: 10, height: 10 }, "a NaN rect is dropped"],
+    [{ x: Infinity, y: 0, width: 10, height: 10 }, "an infinite rect is dropped"],
+  ]) {
+    contents.executeJavaScript = async () => ({ cancelled: false, element: { tagName: "img", selector: "main > img", rect: bad } });
+    const picked = await views.pick("t1");
+    if (Number.isFinite(bad.x) && bad.x < 0) {
+      assert.equal(picked.element.rect.x, -1, why);
+      assert.deepEqual(shots[shots.length - 1], { x: 0, y: 0, width: 10, height: 10 }, "the origin is clamped to the view");
+    } else {
+      assert.equal("rect" in picked.element, false, why);
+      assert.equal("shot" in picked, false, "no picture is taken for a rect that is not numbers");
+    }
+  }
+});
