@@ -19,15 +19,19 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing studio tag to build for (for example studio-v2.51.0)"
-        required: true
+        description: "Existing studio tag to build for and attach to (for example studio-v2.51.0)"
+        required: false
+        type: string
+      ref:
+        description: "A branch to build as a trial run of this workflow; nothing is attached to any release"
+        required: false
         type: string
 
 permissions:
   contents: write # upload the APK to the release the tag belongs to
 
 concurrency:
-  group: android-${{ inputs.tag || github.ref_name }}
+  group: android-${{ inputs.tag || inputs.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -41,6 +45,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       sha: ${{ steps.release.outputs.sha }}
       candidate: ${{ steps.release.outputs.candidate }}
+      publish: ${{ steps.release.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -54,8 +59,17 @@ jobs:
         id: release
         env:
           IN_TAG: ${{ inputs.tag }}
+          IN_REF: ${{ inputs.ref }}
           REF_NAME: ${{ github.ref_name }}
         run: |
+          # A trial run builds a branch as a throwaway version and publishes nothing.
+          if [ -n "$IN_REF" ] && [ -z "$IN_TAG" ]; then
+            sha="$(git rev-parse --verify "origin/$IN_REF^{commit}")"
+            { echo "tag="; echo "version=v0.0.0-dev.${sha:0:7}"; echo "sha=$sha"
+              echo "candidate=false"; echo "publish=false"; } >> "$GITHUB_OUTPUT"
+            echo "trial build of $IN_REF at $sha"
+            exit 0
+          fi
           tag="${IN_TAG:-$REF_NAME}"
           semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?$'
           if [[ ! "$tag" =~ ^studio-v(.+)$ ]] || [[ ! "${BASH_REMATCH[1]}" =~ $semver ]]; then
@@ -73,7 +87,7 @@ jobs:
             candidate=true
           fi
           { echo "tag=$tag"; echo "version=$version"; echo "sha=$sha"
-            echo "candidate=$candidate"; } >> "$GITHUB_OUTPUT"
+            echo "candidate=$candidate"; echo "publish=true"; } >> "$GITHUB_OUTPUT"
           echo "resolved $tag -> $version at $sha (candidate=$candidate)"
 
   build:
@@ -245,7 +259,7 @@ jobs:
     # Nothing to attach unless the build was signed. Skipping is the honest
     # outcome: a release page with an APK nobody can install is worse than a
     # release page without one.
-    if: needs.build.outputs.signed == 'true'
+    if: needs.build.outputs.signed == 'true' && needs.resolve.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
