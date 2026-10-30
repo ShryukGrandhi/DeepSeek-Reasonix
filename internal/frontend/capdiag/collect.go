@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"reasonix/internal/base/secrets"
 	"reasonix/internal/contract/config"
@@ -687,13 +686,7 @@ func sanitizeErrTextWithPaths(s, workspace, home, reasonixHome string) string {
 	// Cap length after redaction.
 	const max = 400
 	if len(s) > max {
-		// Cut on a rune boundary: errors and stderr are often localized,
-		// multi-byte text.
-		cut := max
-		for cut > 0 && !utf8.RuneStart(s[cut]) {
-			cut--
-		}
-		s = s[:cut] + "…"
+		s = s[:runeBoundary(s, max)] + "…"
 	}
 	return s
 }
