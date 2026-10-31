@@ -2617,6 +2617,7 @@
     .prefs-nav::-webkit-scrollbar { display: none }
     .prefs-nav .navsec, .prefs-nav .nv { display: none }
     .prefs-nav button, .prefs-nav button.prefs-page { flex: none; min-height: 32px; padding: 6px 10px }
+    .prefs-nav .nm { flex: none; min-width: 0 }
     .prefs-nav button::before {
       left: 50%; top: auto; bottom: 0; width: 0; height: 2px;
       transform: translateX(-50%); transition: width var(--t-card) var(--ease-spring);
@@ -2628,7 +2629,7 @@
   @media (max-width: 560px) {
     .prefs { padding: 0 }
     .prefs-sheet { border-inline: 0; border-bottom: 0; border-radius: 0 }
-    .prefs-hd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px 14px }
+    .prefs-hd { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; padding: 12px 14px }
     .prefs-find { grid-column: 1 / -1; grid-row: 2; width: 100%; max-width: none; margin-left: 0 }
     .prefs-found { right: 14px; width: calc(100% - 28px) }
     .prefs-main { --main-pad-b: 40px; padding: 20px 14px var(--main-pad-b) }
