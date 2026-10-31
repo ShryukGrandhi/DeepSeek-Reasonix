@@ -84,3 +84,36 @@ func TestTheAgentCannotOpenMoreThanTheLimitOfPages(t *testing.T) {
 		t.Fatalf("closing pages did not make room: %v", err)
 	}
 }
+
+// Opens that overlap must not both pass at the limit: the count includes the
+// pages still being created.
+func TestOverlappingOpensCannotPassTheLimitTogether(t *testing.T) {
+	s := newManyTabsSession(t)
+	for range maxTabs - 1 {
+		if _, err := s.Open(t.Context(), "https://example.com", "", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	results := make(chan error, 8)
+	for range 8 {
+		wg.Go(func() {
+			_, err := s.Open(t.Context(), "https://example.com", "", true)
+			results <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	opened := 0
+	for err := range results {
+		if err == nil {
+			opened++
+		}
+	}
+	if opened != 1 {
+		t.Fatalf("%d of 8 overlapping opens passed with room for one", opened)
+	}
+	if n := s.tabCount(); n != maxTabs {
+		t.Fatalf("%d pages open, want %d", n, maxTabs)
+	}
+}

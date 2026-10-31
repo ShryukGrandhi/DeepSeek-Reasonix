@@ -31,6 +31,7 @@ type Session struct {
 	eng      *engine
 	stopEng  func()
 	tabs     []*tab
+	opening  int
 	active   *tab
 	nextTab  int
 	refs     refTable
@@ -260,12 +261,15 @@ func (s *Session) open(ctx context.Context, rawURL, tabID string, newTab, untilL
 	}
 	var t *tab
 	if newTab || (tabID == "" && s.activeTab() == nil) {
+		release := func() {}
 		if untilLoaded {
-			if n := s.tabCount(); n >= maxTabs {
-				return TabInfo{}, fail(CodeTooManyTabs, "%d pages are already open (the limit is %d); close pages you are done with (browser_open with close=true and a tab), then open this one", n, maxTabs)
+			var ok bool
+			if release, ok = s.reserveTab(); !ok {
+				return TabInfo{}, fail(CodeTooManyTabs, "%d pages are already open (the limit is %d); close pages you are done with (browser_open with close=true and a tab), then open this one", s.tabCount(), maxTabs)
 			}
 		}
 		t, err = s.createTab(ctx, eng)
+		release()
 	} else {
 		t, err = s.tab(tabID)
 	}
@@ -307,6 +311,23 @@ func (s *Session) tabCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.tabs)
+}
+
+// reserveTab claims room for one page the agent is about to create, counting the
+// pages still being created, so two opens that overlap cannot both pass at the
+// limit. The returned func gives the claim back once the page is in the list.
+func (s *Session) reserveTab() (release func(), ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.tabs)+s.opening >= maxTabs {
+		return nil, false
+	}
+	s.opening++
+	return func() {
+		s.mu.Lock()
+		s.opening--
+		s.mu.Unlock()
+	}, true
 }
 
 func (s *Session) activeTab() *tab {
