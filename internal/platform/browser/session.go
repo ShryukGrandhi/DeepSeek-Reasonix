@@ -260,6 +260,11 @@ func (s *Session) open(ctx context.Context, rawURL, tabID string, newTab, untilL
 	}
 	var t *tab
 	if newTab || (tabID == "" && s.activeTab() == nil) {
+		if untilLoaded {
+			if n := s.tabCount(); n >= maxTabs {
+				return TabInfo{}, fail(CodeTooManyTabs, "%d pages are already open (the limit is %d); close pages you are done with (browser_open with close=true and a tab), then open this one", n, maxTabs)
+			}
+		}
 		t, err = s.createTab(ctx, eng)
 	} else {
 		t, err = s.tab(tabID)
@@ -290,6 +295,18 @@ func (s *Session) open(ctx context.Context, rawURL, tabID string, newTab, untilL
 // the person closed it, the page closed itself, or the browser went away.
 func closedOutside(what string) *Failure {
 	return fail(CodeTabClosed, "%s was closed outside the agent (by the person, by the page itself, or because the browser exited); ask whether to open it again rather than reopening it", what)
+}
+
+// maxTabs bounds the pages open in a session when the agent asks for another.
+// Each page is a renderer process, so a model that opens one per search result
+// would otherwise take gigabytes. Pages the person opened count toward the
+// total, but a page the person opens is never refused.
+const maxTabs = 12
+
+func (s *Session) tabCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.tabs)
 }
 
 func (s *Session) activeTab() *tab {
