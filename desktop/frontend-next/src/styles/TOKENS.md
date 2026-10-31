@@ -346,8 +346,9 @@ pack states a shape, never a number the layout has to agree with.
   colour cannot be added to it.
 - The neutral ink the roles set on buttons would land on a primary action's
   fill, where the component pairs `--accent-fg` with `--accent`; an enabled
-  `[data-primary]` button therefore keeps `--accent-fg`, and nothing else is
-  recoloured.
+  `[data-primary]` button therefore keeps `--accent-fg` and carries its
+  `--accent` fill with it, so a container with no fill rule of its own never
+  shows light text on no fill. Nothing else is recoloured.
 
 ## Weight and contrast
 

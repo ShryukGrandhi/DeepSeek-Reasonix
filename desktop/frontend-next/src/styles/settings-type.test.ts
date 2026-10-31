@@ -25,4 +25,5 @@ it("only ever names a neutral text colour from the two tiers, bar a primary acti
 it("lets an enabled primary action keep the foreground its fill is paired with", () => {
   const rule = css.match(/\.prefs-col :is\(\.btn, \.act\)\[data-primary\]:not\(:disabled\)\s*\{([^}]*)\}/)?.[1] ?? "";
   expect(rule).toMatch(/color:\s*var\(--accent-fg\)/);
+  expect(rule, "the foreground must travel with its fill, or a container without a fill rule shows light text on nothing").toMatch(/background:\s*var\(--accent\)/);
 });
